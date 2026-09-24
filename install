@@ -1,0 +1,47 @@
+#!/bin/sh
+set -eu
+
+[ "$#" -le 1 ] || { echo 'Usage: install [https://…/manifest.json]' >&2; exit 2; }
+manifest_url=${1:-}
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT
+trap 'exit 1' HUP INT TERM
+
+if [ -z "$manifest_url" ]; then
+    source_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+    binary=$source_dir/cooked
+    if [ ! -f "$binary" ]; then
+        swift build --package-path "$source_dir" -c release
+        binary=$(swift build --package-path "$source_dir" -c release --show-bin-path)/cooked
+    fi
+else
+    version='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
+    case "$manifest_url" in *[!A-Za-z0-9.:/_-]*) exit 2 ;; esac
+    printf '%s\n' "$manifest_url" | grep -Eq "^https://[A-Za-z0-9.-]+/([A-Za-z0-9._-]+/)*(latest|$version)/manifest\.json$" || exit 2
+    curl -fsSL --proto '=https' --proto-redir '=https' --max-time 30 "$manifest_url" -o "$temporary/manifest.json"
+    [ "$(stat -f %z "$temporary/manifest.json")" -le 4096 ]
+    # A sentinel preserves trailing newlines so malformed strings cannot pass validation.
+    url=$(plutil -extract url raw -expect string -n -o - "$temporary/manifest.json" && printf '.')
+    hash=$(plutil -extract sha256 raw -expect string -n -o - "$temporary/manifest.json" && printf '.')
+    url=${url%.}; hash=${hash%.}
+    case "$url" in *[!A-Za-z0-9.:/_-]*) exit 1 ;; esac
+    case "$hash" in *[!a-fA-F0-9]*) exit 1 ;; esac
+    root=${manifest_url%/*/*}
+    case "$url" in "$root/"*) ;; *) echo 'Invalid download origin' >&2; exit 1 ;; esac
+    suffix=${url#"$root/"}
+    printf '%s\n' "$suffix" | grep -Eq "^$version/cooked$"
+    printf '%s\n' "$hash" | grep -Eq '^[a-fA-F0-9]{64}$'
+    binary=$temporary/cooked
+    curl -fsSL --proto '=https' --proto-redir '=https' --max-time 120 "$url" -o "$binary"
+    actual=$(shasum -a 256 "$binary"); actual=${actual%% *}
+    expected=$(printf '%s' "$hash" | tr 'A-F' 'a-f')
+    [ "$actual" = "$expected" ] || { echo 'Checksum mismatch' >&2; exit 1; }
+    chmod 755 "$binary"
+fi
+
+help=$("$binary" --help)
+[ "$help" = 'Usage: cooked' ] || { echo 'Invalid executable' >&2; exit 1; }
+mkdir -p "$HOME/.local/bin"
+/usr/bin/install -S -m 755 "$binary" "$HOME/.local/bin/cooked"
+printf 'Installed %s\n' "$HOME/.local/bin/cooked"
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo 'Add ~/.local/bin to PATH to run cooked.' ;; esac

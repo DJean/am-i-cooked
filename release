@@ -1,0 +1,63 @@
+#!/bin/sh
+set -eu
+
+[ "$#" -eq 1 ] || { echo 'Usage: release X.Y.Z' >&2; exit 2; }
+version=$1
+case "$version" in *[!0-9.]*) echo 'Version must be X.Y.Z' >&2; exit 2 ;; esac
+printf '%s\n' "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+cd "$(dirname "$0")"
+grep -Fq "public static let version = \"$version\"" Sources/CookedCore/UsageModels.swift
+[ -z "$(git status --porcelain)" ] || { echo 'Working tree must be clean' >&2; exit 1; }
+commit=$(git rev-parse HEAD)
+tag=$(git rev-parse -q --verify "refs/tags/v$version^{commit}" || true)
+[ -z "$tag" ] || [ "$tag" = "$commit" ] || { echo 'Version tag points to another commit' >&2; exit 1; }
+
+mkdir -p dist
+mkdir dist/.release-lock 2>/dev/null || { echo 'Another release is running (dist/.release-lock).' >&2; exit 1; }
+trap 'rmdir dist/.release-lock' EXIT
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"; rmdir dist/.release-lock' EXIT
+trap 'exit 1' HUP INT TERM
+
+swift test -Xswiftc -warnings-as-errors
+swift build -c release --arch arm64 --arch x86_64 -Xswiftc -warnings-as-errors
+bin=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/cooked
+out=$temporary/$version
+mkdir -p "$out"
+cp "$bin" "$out/cooked"
+strip -x "$out/cooked"
+codesign --force --sign - "$out/cooked"
+help=$("$out/cooked" --help)
+[ "$help" = 'Usage: cooked' ]
+hash=$(shasum -a 256 "$out/cooked"); hash=${hash%% *}
+printf '%s  cooked\n' "$hash" > "$out/SHA256SUMS"
+cp install "$out/install"
+
+# A hosted release needs the same root compiled into the updater.
+root=$(sed -n 's/.*packageRoot: URL? = URL(string: "\(.*\)").*/\1/p' Sources/CookedCore/Distribution.swift)
+if [ -n "$root" ]; then
+    printf '%s\n' "$root" | grep -Eq '^https://[A-Za-z0-9.-]+(/[A-Za-z0-9._-]+)+$'
+    printf '{"url":"%s/%s/cooked","sha256":"%s"}\n' "$root" "$version" "$hash" > "$out/manifest.json"
+    sed "s|^manifest_url=.*|manifest_url=\${1:-$root/$version/manifest.json}|" install > "$out/install"
+fi
+chmod 755 "$out/install"
+if [ -d "dist/$version" ]; then
+    diff -qr "$out" "dist/$version" || { echo 'Immutable release differs; bump Build.version.' >&2; exit 1; }
+else
+    mv "$out" "dist/$version"
+fi
+if [ -z "$tag" ]; then git tag "v$version" "$commit"; fi
+if [ -n "$root" ]; then
+    for directory in dist/*; do
+        candidate=${directory#dist/}
+        printf '%s\n' "$candidate" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || continue
+        [ -f "$directory/cooked" ] && [ -f "$directory/manifest.json" ] && [ -f "$directory/install" ] || continue
+        printf '%s\n' "$candidate"
+    done | sort -t. -k1,1nr -k2,2nr -k3,3nr > "$temporary/versions"
+    latest=$(head -n 1 "$temporary/versions")
+    [ -n "$latest" ]
+    mkdir -p dist/latest
+    /usr/bin/install -S -m 644 "dist/$latest/manifest.json" dist/latest/manifest.json
+    /usr/bin/install -S -m 755 "dist/$latest/install" dist/latest/install
+fi
+printf 'Built universal release: dist/%s/\n' "$version"
