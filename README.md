@@ -54,13 +54,7 @@ Save usage, model, company, and comparison cards to Downloads. Exported data is 
 
 Requires **macOS 13 or later**, on Apple Silicon or Intel. Release binaries are universal; no Swift or Xcode installation is needed.
 
-While the repository is **private**, first install and sign in to [GitHub CLI](https://cli.github.com/) with an account that can access it (`gh auth login`), then:
-
-```sh
-gh release download --repo DJean/am-i-cooked --pattern install --output - | sh
-```
-
-Once the owner makes the repository public, anyone can install without GitHub CLI or authentication:
+Install the latest release with one command. No GitHub CLI or GitHub login is required:
 
 ```sh
 curl -fsSL https://github.com/DJean/am-i-cooked/releases/latest/download/install | sh
@@ -108,7 +102,7 @@ Letter shortcuts also accept uppercase, except the distinct `s`/`S` exports. In 
 
 ## Data and privacy
 
-cooked has no analytics, account service, or hosted backend. Credentials are read locally and sent only to the corresponding provider API. It never logs in, refreshes tokens, or rewrites credentials. Provider requests reject cross-origin HTTP redirects. Release downloads use a separate HTTPS client for GitHub release assets; GitHub CLI handles authenticated downloads while the repository is private. Fetched usage data and parsing caches stay in memory.
+cooked has no analytics, account service, or hosted backend. Credentials are read locally and sent only to the corresponding provider API. It never logs in, refreshes tokens, or rewrites credentials. Provider requests reject cross-origin HTTP redirects. Public release downloads use a separate HTTPS client and do not use provider credentials. Fetched usage data and parsing caches stay in memory.
 
 | Provider | Read locally | Queried remotely | What is shown |
 | --- | --- | --- | --- |
@@ -134,7 +128,7 @@ No session files, fetched catalogs, or credentials are written to the project. E
 
 Interactive sessions check this repository's latest stable GitHub Release at launch and about once an hour. An installation at `~/.local/bin/cooked` updates only to a newer semantic version. The updater validates the release tag, manifest, asset origin, SHA-256 digest, and candidate version before an atomic replacement. A running session continues on its current version; reopen cooked to use the update. Failed downloads leave the installed binary intact.
 
-Private releases need an accessible `gh` command and an existing GitHub login with repository access. No GitHub token is copied into cooked configuration or sent to a separate update server. Without access, updates are skipped; normal usage still works. Executables run from a checkout (including `swift run`), other installation paths, and symlink installations are not automatically replaced. `./install --source` installs to the standard path and does receive updates. Non-interactive snapshots do not check for updates.
+Automatic updates use public GitHub Releases and require neither GitHub CLI nor a GitHub login. Update failures do not affect normal usage. Executables run from a checkout (including `swift run`), other installation paths, and symlink installations are not automatically replaced. `./install --source` installs to the standard path and does receive updates. Non-interactive snapshots do not check for updates.
 
 ## Development
 
@@ -160,7 +154,7 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-The release workflow runs tests, builds an Apple Silicon + Intel binary, strips debug symbols, ad-hoc signs it, and packages `cooked`, `install`, `manifest.json`, and `SHA256SUMS`. It uploads all assets to a draft GitHub Release before publishing. Each version stays in this repository's [Releases](https://github.com/DJean/am-i-cooked/releases); binaries are not committed into Git history. The repository remains private until its owner changes visibility.
+The release workflow runs tests, builds an Apple Silicon + Intel binary, strips debug symbols, ad-hoc signs it, and packages `cooked`, `install`, `manifest.json`, and `SHA256SUMS`. It uploads all assets to a draft GitHub Release before publishing. Each version stays in this repository's [Releases](https://github.com/DJean/am-i-cooked/releases); binaries are not committed into Git history.
 
 `./release X.Y.Z` runs the same packaging locally into ignored `dist/X.Y.Z/`, requiring a clean tree and a version matching `Build.version`. It does not upload by itself. Release binaries are ad-hoc signed, not notarized by Apple.
 
