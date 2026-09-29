@@ -127,7 +127,7 @@ Cursor 依次选择有效的个人总额度、团队共享额度、团队按量�
 - [models.dev](https://models.dev)：模型元数据（`models.json`）、价格（`api.json`）和公司标志。作者价格按模型 ID 匹配；部署关联必须唯一明确。评测只在测量条件一致时比较。发布间隔是历史记录，不是未来预测。
 - [LiteLLM 价格目录](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json)：用于本机 token 花费估算，包括支持的缓存和长上下文价格档位。
 
-程序不会将会话文件、获取的目录或凭证写入项目。主动导出时将 PNG 写入 Downloads，目录不存在则创建，遇到同名文件则添加数字后缀。用量卡默认使用中性名称 `cooked user`，不使用 macOS 登录名。分享前请检查卡片，其中的数值反映你的用量。所有卡片页脚均显示 `github.com/DJean/am-i-cooked`。
+程序不会将会话文件、获取的目录或凭证写入项目。主动导出时将 PNG 写入 Downloads，目录不存在则创建，遇到同名文件则添加数字后缀。用量卡默认使用中性名称 `cooked user`，不使用 macOS 登录名。分享前请检查卡片，其中的数值反映你的用量。所有卡片页脚均显示 `https://github.com/DJean/am-i-cooked`。
 
 
 ## 自动更新

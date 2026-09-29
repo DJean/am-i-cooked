@@ -7,12 +7,29 @@ private let refreshMetadata = Data(#"{"anthropic/claude-a":{"id":"anthropic/clau
 private let refreshAPI = Data(#"{"anthropic":{"models":{"claude-a":{"id":"claude-a","name":"Claude A","release_date":"2026-09-01","cost":{"input":2}}}},"amazon-bedrock":{"models":{"anthropic.claude-a-v1:0":{"id":"anthropic.claude-a-v1:0","name":"Claude A","release_date":"2026-09-01"}}}}"#.utf8)
 
 private actor CatalogGate {
-    private var opened = false
-    private var waiting: CheckedContinuation<Void, Never>?
-    func wait() async {
-        if !opened { await withCheckedContinuation { waiting = $0 } }
+    private(set) var opened = false
+    private var waiting: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    func wait() async throws {
+        try Task.checkCancellation()
+        guard !opened else { return }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled { continuation.resume(throwing: CancellationError()) }
+                else if opened { continuation.resume() }
+                else { waiting[id] = continuation }
+            }
+        } onCancel: {
+            Task { await self.cancel(id) }
+        }
     }
-    func open() { opened = true; waiting?.resume(); waiting = nil }
+    private func cancel(_ id: UUID) { waiting.removeValue(forKey: id)?.resume(throwing: CancellationError()) }
+    func open() {
+        opened = true
+        let continuations = waiting.values
+        waiting.removeAll()
+        for continuation in continuations { continuation.resume() }
+    }
 }
 
 private actor CatalogFrames {
@@ -30,21 +47,22 @@ private func catalogResponse(_ request: URLRequest, _ data: Data) -> (Data, HTTP
 @Test func catalogPublishesMetadataBeforeSlowPricesAndProviders() async throws {
     let prices = CatalogGate(), received = CatalogGate(), frames = CatalogFrames()
     let rescue = Task {
-        do { try await Task.sleep(for: .seconds(2)) } catch { return }
+        do { try await Task.sleep(for: .seconds(10)) } catch { return }
+        Issue.record("Metadata publication stalled while the API response was gated")
         await prices.open(); await received.open()
     }
     defer { rescue.cancel() }
-    let start = Date()
     let fetch = Task {
         await ModelCatalogClient.fetch(companies: refreshCompanies, onMetadata: {
             await frames.append($0); await received.open()
         }, transport: { request in
-            if request.url?.lastPathComponent == "api.json" { await prices.wait(); return catalogResponse(request, refreshAPI) }
+            if request.url?.lastPathComponent == "api.json" { try await prices.wait(); return catalogResponse(request, refreshAPI) }
             return catalogResponse(request, refreshMetadata)
         })
     }
-    await received.wait()
-    #expect(Date().timeIntervalSince(start) < 1)
+    defer { fetch.cancel() }
+    try await received.wait()
+    #expect(await prices.opened == false)
     let first = try #require(await frames.values.first)
     #expect(first.models.count == 1 && first.models[0].cost == nil)
     #expect(first.priceLoading && first.error == nil && first.priceError == nil)
@@ -73,20 +91,20 @@ private func catalogResponse(_ request: URLRequest, _ data: Data) -> (Data, HTTP
 @Test func catalogMetadataFailureDoesNotWaitForAPI() async {
     let prices = CatalogGate(), started = CatalogGate(), frames = CatalogFrames()
     let rescue = Task {
-        do { try await Task.sleep(for: .seconds(2)) } catch { return }
+        do { try await Task.sleep(for: .seconds(10)) } catch { return }
+        Issue.record("Metadata failure waited for the gated API response")
         await prices.open(); await started.open()
     }
     defer { rescue.cancel() }
-    let start = Date()
     let final = await ModelCatalogClient.fetch(companies: refreshCompanies, onMetadata: { await frames.append($0) }, transport: { request in
         if request.url?.lastPathComponent == "api.json" {
-            await started.open(); await prices.wait()
+            await started.open(); try await prices.wait()
             return catalogResponse(request, refreshAPI)
         }
-        await started.wait()
+        try await started.wait()
         throw URLError(.notConnectedToInternet)
     })
-    #expect(Date().timeIntervalSince(start) < 1)
+    #expect(await prices.opened == false)
     #expect(final.error != nil && final.fetchedAt == nil && !final.priceLoading)
     #expect(await frames.values.isEmpty)
     await prices.open()

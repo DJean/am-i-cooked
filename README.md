@@ -127,7 +127,7 @@ Public sources require no credentials:
 - [models.dev](https://models.dev): model metadata (`models.json`), prices (`api.json`), and company marks. Author prices are matched by model ID; deployment matches must be unambiguous. Benchmark comparisons require matching measurement conditions. Release intervals are historical, not predictions.
 - [LiteLLM price catalog](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json): local token-cost estimates, including supported cache and long-context tiers.
 
-No session files, fetched catalogs, or credentials are written to the project. Explicit exports write PNGs to Downloads, creating the directory if needed; names get a numeric suffix if a file already exists. Usage cards default to the neutral name `cooked user`, not your macOS login. Review cards before sharing: their figures reflect your usage. Every card footer displays `github.com/DJean/am-i-cooked`.
+No session files, fetched catalogs, or credentials are written to the project. Explicit exports write PNGs to Downloads, creating the directory if needed; names get a numeric suffix if a file already exists. Usage cards default to the neutral name `cooked user`, not your macOS login. Review cards before sharing: their figures reflect your usage. Every card footer displays `https://github.com/DJean/am-i-cooked`.
 
 
 ## Automatic updates
