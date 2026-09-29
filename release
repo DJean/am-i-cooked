@@ -28,8 +28,12 @@ cp "$bin" "$out/cooked"
 strip -x "$out/cooked"
 codesign --force --sign - "$out/cooked"
 codesign --verify --strict "$out/cooked"
-lipo "$out/cooked" -verify_arch arm64 x86_64
+architectures=$(lipo -archs "$out/cooked")
 for architecture in arm64 x86_64; do
+    case " $architectures " in
+        *" $architecture "*) ;;
+        *) echo "Missing $architecture binary slice." >&2; exit 1 ;;
+    esac
     xcrun vtool -arch "$architecture" -show-build "$out/cooked" > "$temporary/build-$architecture"
     awk '
         $1 == "platform" { if ($2 != "MACOS") exit 1; platform = 1 }
