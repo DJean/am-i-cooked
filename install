@@ -1,47 +1,69 @@
 #!/bin/sh
 set -eu
 
-[ "$#" -le 1 ] || { echo 'Usage: install [https://…/manifest.json]' >&2; exit 2; }
-manifest_url=${1:-}
+usage() { echo 'Usage: install [--source]' >&2; }
+[ "$#" -le 1 ] || { usage; exit 2; }
+mode=${1:-}
+case "$mode" in ''|--source) ;; -h|--help) usage; exit 0 ;; *) usage; exit 2 ;; esac
+[ "$(uname -s)" = Darwin ] || { echo 'cooked requires macOS 13 or newer.' >&2; exit 1; }
+case "$(uname -m)" in arm64|x86_64) ;; *) echo 'Unsupported Mac architecture.' >&2; exit 1 ;; esac
+major=$(sw_vers -productVersion); major=${major%%.*}
+case "$major" in ''|*[!0-9]*) exit 1 ;; esac
+[ "$major" -ge 13 ] || { echo 'cooked requires macOS 13 or newer.' >&2; exit 1; }
+
+repository=DJean/am-i-cooked
+root=https://github.com/$repository/releases
 temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
 trap 'exit 1' HUP INT TERM
 
-if [ -z "$manifest_url" ]; then
+if [ "$mode" = --source ]; then
     source_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-    binary=$source_dir/cooked
-    if [ ! -f "$binary" ]; then
-        swift build --package-path "$source_dir" -c release
-        binary=$(swift build --package-path "$source_dir" -c release --show-bin-path)/cooked
-    fi
+    [ -f "$source_dir/Package.swift" ] || { echo 'Run ./install --source from a repository checkout.' >&2; exit 1; }
+    swift build --package-path "$source_dir" -c release
+    binary=$(swift build --package-path "$source_dir" -c release --show-bin-path)/cooked
 else
-    version='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
-    case "$manifest_url" in *[!A-Za-z0-9.:/_-]*) exit 2 ;; esac
-    printf '%s\n' "$manifest_url" | grep -Eq "^https://[A-Za-z0-9.-]+/([A-Za-z0-9._-]+/)*(latest|$version)/manifest\.json$" || exit 2
-    curl -fsSL --proto '=https' --proto-redir '=https' --max-time 30 "$manifest_url" -o "$temporary/manifest.json"
-    [ "$(stat -f %z "$temporary/manifest.json")" -le 4096 ]
-    # A sentinel preserves trailing newlines so malformed strings cannot pass validation.
+    # Public downloads never receive credentials. gh handles private repository access itself.
+    transport=public
+    if ! curl -fsSL --proto '=https' --proto-redir '=https' --max-time 30 --max-filesize 4096 \
+        "$root/latest/download/manifest.json" -o "$temporary/manifest.json" 2>/dev/null; then
+        transport=private
+        if ! command -v gh >/dev/null 2>&1 || ! gh release download --repo "github.com/$repository" \
+            --pattern manifest.json --output "$temporary/manifest.json" --clobber; then
+            echo 'Release unavailable. Private repositories require gh authentication and repository access.' >&2
+            exit 1
+        fi
+    fi
+    [ "$(stat -f %z "$temporary/manifest.json")" -le 4096 ] || { echo 'Invalid release manifest.' >&2; exit 1; }
+    # Sentinels preserve trailing newlines for strict validation.
+    version=$(plutil -extract version raw -expect string -n -o - "$temporary/manifest.json" && printf '.')
     url=$(plutil -extract url raw -expect string -n -o - "$temporary/manifest.json" && printf '.')
     hash=$(plutil -extract sha256 raw -expect string -n -o - "$temporary/manifest.json" && printf '.')
-    url=${url%.}; hash=${hash%.}
-    case "$url" in *[!A-Za-z0-9.:/_-]*) exit 1 ;; esac
-    case "$hash" in *[!a-fA-F0-9]*) exit 1 ;; esac
-    root=${manifest_url%/*/*}
-    case "$url" in "$root/"*) ;; *) echo 'Invalid download origin' >&2; exit 1 ;; esac
-    suffix=${url#"$root/"}
-    printf '%s\n' "$suffix" | grep -Eq "^$version/cooked$"
-    printf '%s\n' "$hash" | grep -Eq '^[a-fA-F0-9]{64}$'
+    version=${version%.}; url=${url%.}; hash=${hash%.}
+    case "$version" in ''|*[!0-9.]*) echo 'Invalid release version.' >&2; exit 1 ;; esac
+    printf '%s\n' "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+    [ "$url" = "$root/download/v$version/cooked" ] || { echo 'Invalid download origin.' >&2; exit 1; }
+    case "$hash" in *[!a-fA-F0-9]*) echo 'Invalid release checksum.' >&2; exit 1 ;; esac
+    [ "${#hash}" -eq 64 ] || { echo 'Invalid release checksum.' >&2; exit 1; }
     binary=$temporary/cooked
-    curl -fsSL --proto '=https' --proto-redir '=https' --max-time 120 "$url" -o "$binary"
+    if [ "$transport" = private ]; then
+        gh release download "v$version" --repo "github.com/$repository" --pattern cooked --output "$binary"
+    else
+        curl -fsSL --proto '=https' --proto-redir '=https' --max-time 120 --max-filesize 67108864 "$url" -o "$binary"
+    fi
+    [ "$(stat -f %z "$binary")" -le 67108864 ] || { echo 'Invalid executable size.' >&2; exit 1; }
     actual=$(shasum -a 256 "$binary"); actual=${actual%% *}
     expected=$(printf '%s' "$hash" | tr 'A-F' 'a-f')
-    [ "$actual" = "$expected" ] || { echo 'Checksum mismatch' >&2; exit 1; }
+    [ "$actual" = "$expected" ] || { echo 'Checksum mismatch.' >&2; exit 1; }
     chmod 755 "$binary"
+    [ "$("$binary" --version)" = "$version" ] || { echo 'Executable version mismatch.' >&2; exit 1; }
 fi
 
 help=$("$binary" --help)
-[ "$help" = 'Usage: cooked' ] || { echo 'Invalid executable' >&2; exit 1; }
-mkdir -p "$HOME/.local/bin"
-/usr/bin/install -S -m 755 "$binary" "$HOME/.local/bin/cooked"
-printf 'Installed %s\n' "$HOME/.local/bin/cooked"
-case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo 'Add ~/.local/bin to PATH to run cooked.' ;; esac
+[ "$help" = 'Usage: cooked' ] || { echo 'Invalid executable.' >&2; exit 1; }
+install_dir=${COOKED_INSTALL_DIR:-"$HOME/.local/bin"}
+mkdir -p "$install_dir"
+[ ! -L "$install_dir/cooked" ] || { echo 'Refusing to replace a symbolic link at the installation destination.' >&2; exit 1; }
+/usr/bin/install -S -m 755 "$binary" "$install_dir/cooked"
+printf 'Installed %s\n' "$install_dir/cooked"
+case ":$PATH:" in *":$install_dir:"*) ;; *) printf 'Add %s to PATH to run cooked.\n' "$install_dir" ;; esac

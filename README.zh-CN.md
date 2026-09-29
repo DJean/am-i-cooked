@@ -52,23 +52,31 @@
 
 ## 安装与运行
 
-需要 **macOS 13 或更新版本**及 **Swift 6 工具链**（Xcode 16 或更新版本）。凭证发现和图片渲染依赖 macOS 系统功能。
+需要 **macOS 13 或更新版本**，支持 Apple Silicon 和 Intel。Release 提供通用二进制，安装不需要 Swift 或 Xcode。
+
+仓库目前是**私有**的。先安装 [GitHub CLI](https://cli.github.com/)，通过 `gh auth login` 登录有仓库访问权限的账号，然后一行安装：
 
 ```sh
-git clone https://github.com/DJean/am-i-cooked.git
-cd am-i-cooked
-./install
-~/.local/bin/cooked
+gh release download --repo DJean/am-i-cooked --pattern install --output - | sh
 ```
 
-仓库仍为私有时，你的 GitHub 账号需要有访问权限。`./install` 从源码构建并安装到 `~/.local/bin`；将该目录加入 shell 的 `PATH` 后，即可直接运行 `cooked`。cooked 不提供账号登录，请先在原工具中登录。
+将来仓库所有者改为公开后，任何人都可以无需 GitHub CLI 或认证，直接运行：
 
 ```sh
-swift run -c release cooked         # 不安装，直接运行
+curl -fsSL https://github.com/DJean/am-i-cooked/releases/latest/download/install | sh
+```
+
+安装脚本下载最新稳定版本，验证 SHA-256 校验和及版本，然后原子安装到 `~/.local/bin/cooked`。如需单独安装，可用 `COOKED_INSTALL_DIR` 指定其他目录；自动更新仅限标准路径。将 `~/.local/bin` 加入 shell 的 `PATH`，或直接运行 `~/.local/bin/cooked`。Codex、Claude Code 和 Cursor 仍需在各自工具中登录，cooked 不执行这些登录。
+
+```sh
+cooked                             # 打开界面
 cooked > usage.txt                 # 输出一次纯文本用量快照
 NO_COLOR=1 cooked                  # 关闭终端颜色
+cooked --version
 cooked --help
 ```
+
+如需从源码构建，安装 Swift 6 工具链（Xcode 16 或更新版本），克隆仓库后运行 `./install --source`，也可用 `swift run -c release cooked` 直接运行。
 
 界面最多使用 104 列。Models 至少需要 80×21；Usage 所需高度取决于可见数据源和展开的明细。出现尺寸提示时，请调整终端大小。用量约每分钟刷新，公开模型数据约每 30 分钟刷新，失败后会更早重试。
 
@@ -100,7 +108,7 @@ cooked --help
 
 ## 数据与隐私
 
-cooked 没有遥测、账号服务或托管后端。凭证从本机只读获取，仅发送给对应服务的 API；不会自行登录、刷新 token 或改写凭证。程序拒绝跨来源 HTTP 重定向，获取的数据和解析缓存仅保留在内存中。
+cooked 没有遥测、账号服务或托管后端。凭证从本机只读获取，仅发送给对应服务的 API；不会自行登录、刷新 token 或改写凭证。服务凭证请求拒绝跨来源 HTTP 重定向。Release 下载使用独立的 HTTPS 客户端访问 GitHub 资产；私有仓库的认证下载交给 GitHub CLI 处理。获取的用量数据和解析缓存仅保留在内存中。
 
 | 数据源 | 本机读取 | 远端查询 | 展示内容 |
 | --- | --- | --- | --- |
@@ -119,7 +127,14 @@ Cursor 依次选择有效的个人总额度、团队共享额度、团队按量�
 - [models.dev](https://models.dev)：模型元数据（`models.json`）、价格（`api.json`）和公司标志。作者价格按模型 ID 匹配；部署关联必须唯一明确。评测只在测量条件一致时比较。发布间隔是历史记录，不是未来预测。
 - [LiteLLM 价格目录](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json)：用于本机 token 花费估算，包括支持的缓存和长上下文价格档位。
 
-程序不会将会话文件、获取的目录或凭证写入项目。主动导出时将 PNG 写入 Downloads，目录不存在则创建，遇到同名文件则添加数字后缀。用量卡默认使用中性名称 `cooked user`，不使用 macOS 登录名。分享前请检查卡片，其中的数值反映你的用量。当前构建关闭自动更新。
+程序不会将会话文件、获取的目录或凭证写入项目。主动导出时将 PNG 写入 Downloads，目录不存在则创建，遇到同名文件则添加数字后缀。用量卡默认使用中性名称 `cooked user`，不使用 macOS 登录名。分享前请检查卡片，其中的数值反映你的用量。所有卡片页脚均显示 `github.com/DJean/am-i-cooked`。
+
+
+## 自动更新
+
+交互运行时，启动及之后约每小时检查本仓库最新稳定 GitHub Release。只有安装在 `~/.local/bin/cooked` 的普通文件才会自动更新，且只接受更高的语义版本。替换前验证 Release tag、manifest、资产来源、SHA-256 和候选程序版本，然后原子替换。当前会话继续运行原版本，重新打开 cooked 后使用新版本。下载失败不会破坏已安装程序。
+
+私有阶段需要能在 PATH 中找到 `gh`，且已有登录账号具备仓库访问权限。程序不把 GitHub token 复制到配置中，也不发送到独立更新服务器。没有权限时跳过更新，不影响正常使用。直接从源码目录运行（包括 `swift run`）、其他安装路径和符号链接安装不会被自动替换。`./install --source` 安装到标准路径的程序仍会更新；非交互快照不检查更新。
 
 ## 开发
 
@@ -137,7 +152,17 @@ TZ=UTC COOKED_DOC_SCREENSHOTS=docs/images swift test --filter DocumentationScree
 
 两个 target 的结构是有意保留的简单边界。优先使用小型具体类型和可注入的 I/O，不引入插件框架或额外抽象层。[AGENTS.md](AGENTS.md) 记录了开发约定。
 
-`./release X.Y.Z` 是可选的本地打包脚本：要求工作树干净、版本与 `Build.version` 一致，运行测试，构建并进行 ad-hoc 签名的通用二进制，创建本地 tag 和已忽略的 `dist/` 产物。它不会上传或创建 GitHub Release。二进制未经 Apple 公证。上述源码安装不需要配置更新服务器。
+发布新版本时，修改 `Sources/CookedCore/UsageModels.swift` 中的 `Build.version`，重新生成受影响截图，提交更改后推送对应 tag：
+
+```sh
+git push origin main
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+Release 工作流运行测试、构建 Apple Silicon + Intel 通用二进制、移除调试符号并进行 ad-hoc 签名，打包 `cooked`、`install`、`manifest.json` 和 `SHA256SUMS`，先上传完整资产到草稿 Release，再发布。每个版本保留在本仓库的 [Releases](https://github.com/DJean/am-i-cooked/releases)，不把二进制提交进 Git 历史。仓库继续保持私有，直到所有者主动更改可见性。
+
+`./release X.Y.Z` 在本地执行相同打包，输出到被忽略的 `dist/X.Y.Z/`；要求工作树干净，版本与 `Build.version` 一致，本身不上传。二进制经过 ad-hoc 签名，未经 Apple 公证。
 
 ## 许可证
 

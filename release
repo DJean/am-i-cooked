@@ -3,14 +3,14 @@ set -eu
 
 [ "$#" -eq 1 ] || { echo 'Usage: release X.Y.Z' >&2; exit 2; }
 version=$1
-case "$version" in *[!0-9.]*) echo 'Version must be X.Y.Z' >&2; exit 2 ;; esac
+case "$version" in ''|*[!0-9.]*) echo 'Version must be X.Y.Z' >&2; exit 2 ;; esac
 printf '%s\n' "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
 cd "$(dirname "$0")"
 grep -Fq "public static let version = \"$version\"" Sources/CookedCore/UsageModels.swift
-[ -z "$(git status --porcelain)" ] || { echo 'Working tree must be clean' >&2; exit 1; }
+[ -z "$(git status --porcelain)" ] || { echo 'Working tree must be clean.' >&2; exit 1; }
 commit=$(git rev-parse HEAD)
 tag=$(git rev-parse -q --verify "refs/tags/v$version^{commit}" || true)
-[ -z "$tag" ] || [ "$tag" = "$commit" ] || { echo 'Version tag points to another commit' >&2; exit 1; }
+[ -z "$tag" ] || [ "$tag" = "$commit" ] || { echo 'Version tag points to another commit.' >&2; exit 1; }
 
 mkdir -p dist
 mkdir dist/.release-lock 2>/dev/null || { echo 'Another release is running (dist/.release-lock).' >&2; exit 1; }
@@ -27,37 +27,32 @@ mkdir -p "$out"
 cp "$bin" "$out/cooked"
 strip -x "$out/cooked"
 codesign --force --sign - "$out/cooked"
-help=$("$out/cooked" --help)
-[ "$help" = 'Usage: cooked' ]
+codesign --verify --strict "$out/cooked"
+lipo -verify_arch arm64 x86_64 "$out/cooked"
+for architecture in arm64 x86_64; do
+    xcrun vtool -arch "$architecture" -show-build "$out/cooked" > "$temporary/build-$architecture"
+    awk '
+        $1 == "platform" { if ($2 != "MACOS") exit 1; platform = 1 }
+        $1 == "minos" {
+            count++
+            if ($2 !~ /^[0-9]+\.[0-9]+(\.[0-9]+)?$/) exit 1
+            split($2, version, ".")
+            if (version[1] > 13 || (version[1] == 13 && (version[2] > 0 || version[3] > 0))) exit 1
+        }
+        END { if (!platform || count != 1) exit 1 }
+    ' "$temporary/build-$architecture" || { echo "The $architecture binary must support macOS 13.0." >&2; exit 1; }
+done
+[ "$("$out/cooked" --help)" = 'Usage: cooked' ]
+[ "$("$out/cooked" --version)" = "$version" ]
 hash=$(shasum -a 256 "$out/cooked"); hash=${hash%% *}
-printf '%s  cooked\n' "$hash" > "$out/SHA256SUMS"
+printf '{"version":"%s","url":"https://github.com/DJean/am-i-cooked/releases/download/v%s/cooked","sha256":"%s"}\n' \
+    "$version" "$version" "$hash" > "$out/manifest.json"
 cp install "$out/install"
-
-# A hosted release needs the same root compiled into the updater.
-root=$(sed -n 's/.*packageRoot: URL? = URL(string: "\(.*\)").*/\1/p' Sources/CookedCore/Distribution.swift)
-if [ -n "$root" ]; then
-    printf '%s\n' "$root" | grep -Eq '^https://[A-Za-z0-9.-]+(/[A-Za-z0-9._-]+)+$'
-    printf '{"url":"%s/%s/cooked","sha256":"%s"}\n' "$root" "$version" "$hash" > "$out/manifest.json"
-    sed "s|^manifest_url=.*|manifest_url=\${1:-$root/$version/manifest.json}|" install > "$out/install"
-fi
 chmod 755 "$out/install"
+(cd "$out" && shasum -a 256 cooked install manifest.json > SHA256SUMS)
 if [ -d "dist/$version" ]; then
     diff -qr "$out" "dist/$version" || { echo 'Immutable release differs; bump Build.version.' >&2; exit 1; }
 else
     mv "$out" "dist/$version"
-fi
-if [ -z "$tag" ]; then git tag "v$version" "$commit"; fi
-if [ -n "$root" ]; then
-    for directory in dist/*; do
-        candidate=${directory#dist/}
-        printf '%s\n' "$candidate" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || continue
-        [ -f "$directory/cooked" ] && [ -f "$directory/manifest.json" ] && [ -f "$directory/install" ] || continue
-        printf '%s\n' "$candidate"
-    done | sort -t. -k1,1nr -k2,2nr -k3,3nr > "$temporary/versions"
-    latest=$(head -n 1 "$temporary/versions")
-    [ -n "$latest" ]
-    mkdir -p dist/latest
-    /usr/bin/install -S -m 644 "dist/$latest/manifest.json" dist/latest/manifest.json
-    /usr/bin/install -S -m 755 "dist/$latest/install" dist/latest/install
 fi
 printf 'Built universal release: dist/%s/\n' "$version"

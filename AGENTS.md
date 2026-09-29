@@ -16,7 +16,7 @@ This is a macOS terminal application with two tabs: Usage (Codex, Claude Code, C
 - `TimelineState.swift`, `ModelCompare.swift`, `ReleaseCadence.swift`: navigation/comparison and date calculations.
 - `Rendering.swift`, `TimelineRenderer.swift`: terminal output from explicit state; no network or credential access.
 - `CardCanvas.swift`, `ShareCard.swift`, `ModelShareCard.swift`, `LabMarks.swift`: native exports and public marks.
-- `Distribution.swift`, `install`, `release`: installation and optional local packaging. Updates remain disabled unless explicitly requested.
+- `Distribution.swift`, `install`, `release`: GitHub Releases distribution, atomic installation and updates. `.github/workflows/release.yml` publishes tagged versions with checksums.
 
 ## Design rules
 
@@ -30,7 +30,7 @@ Terminal rendering must fit row/column budgets, clean untrusted control characte
 
 Never commit or print real credentials, session logs, private endpoints, personal absolute paths, account payloads, or employer material. Use generic fixture names, `example.com`/`.invalid`, and clearly fake tokens. Do not run providers against a real account just to create documentation or tests.
 
-Credentials are read-only and sent only to the matching service. Do not add login/token refresh, credential writes, analytics or data uploads. Do not embed local usernames or organization names in default exports. Public model marks/data retain their owners' rights; do not copy unlicensed assets or code.
+Credentials are read-only and sent only to the matching service. Do not add login/token refresh, credential writes, analytics or usage-data uploads. GitHub release downloads may use existing `gh` authentication; never extract or log its token. Do not embed local usernames or organization names in default exports. Public model marks/data retain their owners' rights; do not copy unlicensed assets or code.
 
 Screenshots must come from deterministic synthetic fixtures passed through the actual renderers. Do not use desktop captures containing personal accounts. Keep `.build/`, `.swiftpm/`, `dist/`, credentials and logs out of Git. Check staged files and history before any first publication. Keep the GitHub repository private until its owner explicitly requests public visibility.
 
@@ -51,4 +51,4 @@ Regenerate documentation images when UI changes affect them:
 TZ=UTC COOKED_DOC_SCREENSHOTS=docs/images swift test --filter DocumentationScreenshotTests
 ```
 
-Keep README.md and README.zh-CN.md aligned with behavior. Document limitations accurately; do not promise real-service compatibility based only on fixture tests. Do not bump versions, publish releases, change repository visibility or enable an updater unless that action is part of the user's task.
+Keep README.md and README.zh-CN.md aligned with behavior. Document limitations accurately; do not promise real-service compatibility based only on fixture tests. Versioned binaries belong in this repository's GitHub Releases, not Git history. The owner has enabled automatic updates from that source. Keep manifest/tag/binary versions consistent and preserve SHA-256 checks, newer-version checks, safe replacement and provider credential isolation. Do not publish a new version or change repository visibility unless that action is part of the user's task.

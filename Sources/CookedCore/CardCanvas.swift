@@ -112,7 +112,7 @@ struct CardCanvas {
     func png(note: String, footerRule: CGFloat? = nil, footerSpacing: CGFloat = 32) throws -> Data {
         let y = footerRule ?? height - 62
         rule(y)
-        let credit = "> cooked ▌", creditWidth = lineWidth(line(credit, 10, accent))
+        let credit = "github.com/" + Distribution.repository, creditWidth = lineWidth(line(credit, 10, accent))
         text(note, margin, y + footerSpacing, 9, muted, maxWidth: max(1, width - margin * 2 - creditWidth - 12))
         text(credit, width - margin, y + footerSpacing, 10, accent, right: true)
         for y in stride(from: CGFloat(0), to: height, by: 3) { rect(0, y, width, 1, CGColor(gray: 0, alpha: 0.06)) }

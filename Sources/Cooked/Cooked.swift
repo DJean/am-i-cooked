@@ -9,6 +9,7 @@ private final class MonitorEvents: @unchecked Sendable {
         var catalog: (value: ModelCatalog, complete: Bool)?
         var keys: [TerminalKey] = []
         var notice: String?
+        var installedVersion: String?
     }
     let stream: AsyncStream<Void>
     private let continuation: AsyncStream<Void>.Continuation
@@ -98,6 +99,10 @@ private final class Terminal: @unchecked Sendable {
 private enum Cooked {
     @MainActor static func main() async {
         let arguments = Array(CommandLine.arguments.dropFirst())
+        if arguments == ["--version"] {
+            FileHandle.standardOutput.write(Data((Build.version + "\n").utf8))
+            return
+        }
         if !arguments.isEmpty {
             let help = arguments.count == 1 && ["-h", "--help"].contains(arguments[0])
             let output = help ? FileHandle.standardOutput : .standardError
@@ -163,9 +168,10 @@ private enum Cooked {
         draw()
         requestCatalog()
         let updater = Task {
-            guard Distribution.packageRoot != nil else { return }
             while !Task.isCancelled {
-                await SelfUpdater.run()
+                if let version = await SelfUpdater.run() {
+                    events.post { $0.installedVersion = version }
+                }
                 do { try await Task.sleep(for: .seconds(3600)) } catch { break }
             }
         }
@@ -183,6 +189,7 @@ private enum Cooked {
             let pending = events.take()
             if pending.quit { break }
             if let message = pending.notice { notice = message; share = nil }
+            if let version = pending.installedVersion { notice = "Updated to " + version + "; restart cooked to use it." }
             if let updated = pending.snapshots { snapshots = updated; loading = false; refresh = nil }
             if let updated = pending.catalog {
                 catalog = updated.value.merging(previous: catalog)

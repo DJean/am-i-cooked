@@ -1,7 +1,7 @@
 import Foundation
 
 public enum Build {
-    public static let version = "0.11.0"
+    public static let version = "0.12.0"
 }
 
 public protocol UsageProvider: Sendable {

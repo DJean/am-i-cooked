@@ -52,23 +52,31 @@ Save usage, model, company, and comparison cards to Downloads. Exported data is 
 
 ## Install and run
 
-Requires **macOS 13 or later** and a **Swift 6 toolchain** (Xcode 16 or later). This is a macOS application: credential discovery and image rendering use system facilities.
+Requires **macOS 13 or later**, on Apple Silicon or Intel. Release binaries are universal; no Swift or Xcode installation is needed.
+
+While the repository is **private**, first install and sign in to [GitHub CLI](https://cli.github.com/) with an account that can access it (`gh auth login`), then:
 
 ```sh
-git clone https://github.com/DJean/am-i-cooked.git
-cd am-i-cooked
-./install
-~/.local/bin/cooked
+gh release download --repo DJean/am-i-cooked --pattern install --output - | sh
 ```
 
-The repository must be accessible to your GitHub account while it is private. `./install` builds from source and installs to `~/.local/bin`; add that directory to your shell's `PATH` to run `cooked` directly. No account setup takes place inside cooked—sign in using the original tools first.
+Once the owner makes the repository public, anyone can install without GitHub CLI or authentication:
 
 ```sh
-swift run -c release cooked         # run without installing
+curl -fsSL https://github.com/DJean/am-i-cooked/releases/latest/download/install | sh
+```
+
+The installer fetches the latest stable release, validates its SHA-256 checksum and version, and installs atomically to `~/.local/bin/cooked`. `COOKED_INSTALL_DIR` can override the destination for a separate installation; automatic updates are limited to the standard path. Add `~/.local/bin` to your shell's `PATH`, or run `~/.local/bin/cooked` directly. Sign in to Codex, Claude Code, or Cursor using their original tools; cooked does not perform those logins.
+
+```sh
+cooked                             # open the dashboard
 cooked > usage.txt                 # one plain-text Usage snapshot
 NO_COLOR=1 cooked                  # disable terminal colors
+cooked --version
 cooked --help
 ```
+
+To build from source instead, install a Swift 6 toolchain (Xcode 16 or later), clone this repository, and run `./install --source` or `swift run -c release cooked`.
 
 The interface uses up to 104 columns. Models needs at least 80×21; Usage height depends on the visible providers and expanded details. Resize when the app shows a size hint. Usage refreshes about every minute; public model data refreshes about every 30 minutes, with earlier retries after failures.
 
@@ -100,7 +108,7 @@ Letter shortcuts also accept uppercase, except the distinct `s`/`S` exports. In 
 
 ## Data and privacy
 
-cooked has no analytics, account service, or hosted backend. Credentials are read locally and sent only to the corresponding provider API. It never logs in, refreshes tokens, or rewrites credentials. It rejects cross-origin HTTP redirects and keeps fetched data and parsing caches in memory.
+cooked has no analytics, account service, or hosted backend. Credentials are read locally and sent only to the corresponding provider API. It never logs in, refreshes tokens, or rewrites credentials. Provider requests reject cross-origin HTTP redirects. Release downloads use a separate HTTPS client for GitHub release assets; GitHub CLI handles authenticated downloads while the repository is private. Fetched usage data and parsing caches stay in memory.
 
 | Provider | Read locally | Queried remotely | What is shown |
 | --- | --- | --- | --- |
@@ -119,7 +127,14 @@ Public sources require no credentials:
 - [models.dev](https://models.dev): model metadata (`models.json`), prices (`api.json`), and company marks. Author prices are matched by model ID; deployment matches must be unambiguous. Benchmark comparisons require matching measurement conditions. Release intervals are historical, not predictions.
 - [LiteLLM price catalog](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json): local token-cost estimates, including supported cache and long-context tiers.
 
-No session files, fetched catalogs, or credentials are written to the project. Explicit exports write PNGs to Downloads, creating the directory if needed; names get a numeric suffix if a file already exists. Usage cards default to the neutral name `cooked user`, not your macOS login. Review cards before sharing: their figures reflect your usage. Automatic self-updates are disabled in this build.
+No session files, fetched catalogs, or credentials are written to the project. Explicit exports write PNGs to Downloads, creating the directory if needed; names get a numeric suffix if a file already exists. Usage cards default to the neutral name `cooked user`, not your macOS login. Review cards before sharing: their figures reflect your usage. Every card footer displays `github.com/DJean/am-i-cooked`.
+
+
+## Automatic updates
+
+Interactive sessions check this repository's latest stable GitHub Release at launch and about once an hour. An installation at `~/.local/bin/cooked` updates only to a newer semantic version. The updater validates the release tag, manifest, asset origin, SHA-256 digest, and candidate version before an atomic replacement. A running session continues on its current version; reopen cooked to use the update. Failed downloads leave the installed binary intact.
+
+Private releases need an accessible `gh` command and an existing GitHub login with repository access. No GitHub token is copied into cooked configuration or sent to a separate update server. Without access, updates are skipped; normal usage still works. Executables run from a checkout (including `swift run`), other installation paths, and symlink installations are not automatically replaced. `./install --source` installs to the standard path and does receive updates. Non-interactive snapshots do not check for updates.
 
 ## Development
 
@@ -137,7 +152,17 @@ Default tests use temporary directories, fake credentials, injected HTTP replies
 
 The two-target structure is intentional. Prefer small concrete types and injected I/O over a plugin framework or additional abstraction layers. [AGENTS.md](AGENTS.md) documents the working conventions.
 
-`./release X.Y.Z` is optional local packaging: it requires a clean tree and matching `Build.version`, runs tests, builds and ad-hoc signs a universal binary, and creates a local tag and ignored `dist/` output. It does not upload or create a GitHub release. Binaries are not notarized. The source installation above needs no update-server configuration.
+To publish a version, update `Build.version` in `Sources/CookedCore/UsageModels.swift`, regenerate affected screenshots, commit the changes, and push the matching tag:
+
+```sh
+git push origin main
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+The release workflow runs tests, builds an Apple Silicon + Intel binary, strips debug symbols, ad-hoc signs it, and packages `cooked`, `install`, `manifest.json`, and `SHA256SUMS`. It uploads all assets to a draft GitHub Release before publishing. Each version stays in this repository's [Releases](https://github.com/DJean/am-i-cooked/releases); binaries are not committed into Git history. The repository remains private until its owner changes visibility.
+
+`./release X.Y.Z` runs the same packaging locally into ignored `dist/X.Y.Z/`, requiring a clean tree and a version matching `Build.version`. It does not upload by itself. Release binaries are ad-hoc signed, not notarized by Apple.
 
 ## License
 
