@@ -28,7 +28,7 @@ cp "$bin" "$out/cooked"
 strip -x "$out/cooked"
 codesign --force --sign - "$out/cooked"
 codesign --verify --strict "$out/cooked"
-lipo -verify_arch arm64 x86_64 "$out/cooked"
+lipo "$out/cooked" -verify_arch arm64 x86_64
 for architecture in arm64 x86_64; do
     xcrun vtool -arch "$architecture" -show-build "$out/cooked" > "$temporary/build-$architecture"
     awk '
